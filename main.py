@@ -91,7 +91,11 @@ class LogDownloader:
             )
             count += 1
             progress_logger.log('Download', count, total)
-        print("Download complete! {} existed files.".format(exist) + " " * 10)
+
+        results = "Download complete!"
+        if exist:
+            results += " Skip {} existed files.".format(exist)
+        print(results + " " * 10)
 
     def _filter_object_keys(self, keys, prefix):
         def is_valid(key):
@@ -148,9 +152,9 @@ def parse_logs():
 
 
 class LogAnalyzer:
-    def __init__(self):
-        self.stat_file = Path('./stat.csv')
-        self.count = 0
+    def __init__(self, start, end):
+        self.start, self.end = start, end
+        self.stat_file = Path('./stat_{}_{}.csv'.format(start.isoformat(), end.isoformat()))
         self.normalize_handler = {
             re.compile(r'https://api\.soocii\.me:443/graph/v1\.2/\d*/achievements'):
                 "https://api.soocii.me:443/graph/v1.2/<id>/achievements",
@@ -178,17 +182,18 @@ class LogAnalyzer:
                 "https://api.soocii.me:443/graph/v1.2/me/posts/<status_id>"
         }
 
-    def stat_api_calls(self, start, end):
+    def stat_api_calls(self):
         stats = defaultdict(lambda: 0)
         total = sum(1 for _ in parsed_file.open('r'))
+        count = 0
         with parsed_file.open('r') as in_f:
             for line in in_f:
-                self.count += 1
-                progress_logger.log("Analyzing", self.count, total)
+                count += 1
+                progress_logger.log("Analyzing", count, total)
                 line = line.replace('\n', '')
                 log_at, method, url = self._parse_line(line)
 
-                if log_at < start or log_at > end:
+                if log_at < self.start or log_at > self.end:
                     continue
                 if 'content/corpus' in url:
                     continue
@@ -235,13 +240,12 @@ class LogAnalyzer:
         return url
 
 
-if __name__ == '__main__':
+def setup_args_parser():
     def convert_datetime_str(d_str):
         dt = dateutil.parser.parse(d_str)
         dt = dt.astimezone(timezone.utc)
         dt = dt.replace(tzinfo=None)
         return dt
-
 
     arg_parser = ArgumentParser(description="Analyze ALB logs by datetime duration")
     arg_parser.add_argument('start', type=convert_datetime_str, help="Start datetime")
@@ -252,22 +256,35 @@ if __name__ == '__main__':
                             help="Analyze internal ALB (default off)")
     arg_parser.add_argument("--no-cache", action="store_true", dest="rm_cache", default=False,
                             help="Remove cached files.")
+    return arg_parser
 
+
+def clean_cache():
+    if download_folder.exists():
+        shutil.rmtree(str(download_folder))
+        print("Deleted {}.".format(download_folder))
+    if merged_file.exists():
+        os.remove(str(merged_file))
+        print("Deleted {}.".format(merged_file))
+    if parsed_file.exists():
+        os.remove(str(parsed_file))
+        print("Deleted {}.".format(parsed_file))
+
+
+if __name__ == '__main__':
+    arg_parser = setup_args_parser()
     args = arg_parser.parse_args()
 
+    analyzer = LogAnalyzer(args.start, args.end)
+    if analyzer.stat_file.exists():
+        cont = input("{} exist. Do you want to continue? [Y|n]".format(analyzer.stat_file))
+        if cont.lower() == 'n':
+            exit()
+
     if args.rm_cache:
-        if download_folder.exists():
-            shutil.rmtree(str(download_folder))
-            print("Deleted {}.".format(download_folder))
-        if merged_file.exists():
-            os.remove(str(merged_file))
-            print("Deleted {}.".format(merged_file))
-        if parsed_file.exists():
-            os.remove(str(parsed_file))
-            print("Deleted {}.".format(parsed_file))
+        clean_cache()
 
     LogDownloader(args.start, args.end, args.ext, args.int).download()
-
     merge_logs()
     parse_logs()
-    LogAnalyzer().stat_api_calls(args.start, args.end)
+    analyzer.stat_api_calls()
