@@ -35,23 +35,32 @@ download_folder = Path("./download")
 
 
 class LogDownloader:
-    def download(self, date, external=False, internal=False):
+    def __init__(self, start, end, external=False, internal=False):
+        self.start, self.end = start, end
+        self.external, self.internal = external, internal
+
+    def download(self):
         if not download_folder.exists():
             download_folder.mkdir()
 
+        self._download_with_date(self.start.date())
+        if self.start.date() != self.end.date():
+            self._download_with_date(self.end.date())
+
+    def _download_with_date(self, date):
         base_prefix = 'AWSLogs/710026814108/elasticloadbalancing/ap-northeast-1/{}/{:02d}/{:02d}/'.format(
             date.year, date.month, date.day
         )
         external_prefix = '710026814108_elasticloadbalancing_ap-northeast-1_app.api-prod-elb.'
         internal_prefix = '710026814108_elasticloadbalancing_ap-northeast-1_app.api-prod-internal-elb.'
 
-        if external:
-            self._download_with_prefix(base_prefix + external_prefix, 'External ALB')
+        if self.external:
+            self._download_with_prefix(base_prefix + external_prefix)
 
-        if internal:
-            self._download_with_prefix(base_prefix + internal_prefix, 'Internal ALB')
+        if self.internal:
+            self._download_with_prefix(base_prefix + internal_prefix)
 
-    def _download_with_prefix(self, prefix, source):
+    def _download_with_prefix(self, prefix):
         bucket = 'prod-lbs-access-log'
         s3_client = boto3.client('s3')
 
@@ -59,14 +68,19 @@ class LogDownloader:
             Bucket=bucket,
             Prefix=prefix
         )
-        print("{} have {} objects".format(source, ret['KeyCount']))
+
         if 'Contents' not in ret:
             raise RuntimeError("no files be found on S3")
 
+        keys = [content['Key'] for content in ret['Contents']]
+        keys = self._filter_object_keys(keys, prefix)
+        if not keys:
+            raise RuntimeError("No objects matched given time period.")
+
         count = 0
-        total = len(ret['Contents'])
+        total = len(keys)
         exist = 0
-        for key in (content['Key'] for content in ret['Contents']):
+        for key in keys:
             file_name = key.replace(prefix, '')
             if (download_folder / file_name).exists():
                 total -= 1
@@ -78,6 +92,17 @@ class LogDownloader:
             count += 1
             progress_logger.log('Download', count, total)
         print("Download complete! {} existed files.".format(exist) + " " * 10)
+
+    def _filter_object_keys(self, keys, prefix):
+        def is_valid(key):
+            key = key.strip(prefix)
+            obj_datetime = datetime.strptime(key.split("_")[1], "%Y%m%dT%H%MZ")
+            if self.start < obj_datetime < self.end:
+                return True
+            else:
+                return False
+
+        return list(filter(is_valid, keys))
 
 
 merged_file = Path('./merged')
@@ -240,9 +265,7 @@ if __name__ == '__main__':
             os.remove(str(parsed_file))
             print("Deleted {}.".format(parsed_file))
 
-    LogDownloader().download(args.start.date(), external=args.ext, internal=args.int)
-    if args.start.date() != args.end.date():
-        LogDownloader().download(args.end.date(), external=args.ext, internal=args.int)
+    LogDownloader(args.start, args.end, args.ext, args.int).download()
 
     merge_logs()
     parse_logs()
