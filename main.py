@@ -2,6 +2,7 @@
 import csv
 import gzip
 import re
+import shutil
 from argparse import ArgumentParser
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
@@ -9,6 +10,7 @@ from pathlib import Path
 
 import boto3
 import dateutil.parser
+import os
 
 
 class ProgressLogger:
@@ -44,12 +46,10 @@ class LogDownloader:
         internal_prefix = '710026814108_elasticloadbalancing_ap-northeast-1_app.api-prod-internal-elb.'
 
         if external:
-            self._download_with_prefix(
-                base_prefix + external_prefix, 'external')
+            self._download_with_prefix(base_prefix + external_prefix, 'External ALB')
 
         if internal:
-            self._download_with_prefix(
-                base_prefix + internal_prefix, 'internal')
+            self._download_with_prefix(base_prefix + internal_prefix, 'Internal ALB')
 
     def _download_with_prefix(self, prefix, source):
         bucket = 'prod-lbs-access-log'
@@ -189,9 +189,7 @@ class LogAnalyzer:
 
     def _identify_service(self, url):
         service = ''
-        if 'api/v1' in url:
-            service = 'jarvis'
-        if 'api/getG' in url:
+        if 'api/' in url:
             service = 'jarvis'
         if 'graph/v' in url:
             service = 'pepper'
@@ -223,15 +221,28 @@ if __name__ == '__main__':
     arg_parser.add_argument('start', type=convert_datetime_str, help="Start datetime")
     arg_parser.add_argument('end', type=convert_datetime_str, help="End datetime")
     arg_parser.add_argument("-e", "--external", action="store_true", dest="ext", default=True,
-                            help="Analyze external ALB")
+                            help="Analyze external ALB (default on)")
     arg_parser.add_argument("-i", "--internal", action="store_true", dest="int", default=False,
-                            help="Analyze internal ALB")
+                            help="Analyze internal ALB (default off)")
+    arg_parser.add_argument("--no-cache", action="store_true", dest="rm_cache", default=False,
+                            help="Remove cached files.")
 
     args = arg_parser.parse_args()
 
-    LogDownloader().download(args.start.date())
+    if args.rm_cache:
+        if download_folder.exists():
+            shutil.rmtree(str(download_folder))
+            print("Deleted {}.".format(download_folder))
+        if merged_file.exists():
+            os.remove(str(merged_file))
+            print("Deleted {}.".format(merged_file))
+        if parsed_file.exists():
+            os.remove(str(parsed_file))
+            print("Deleted {}.".format(parsed_file))
+
+    LogDownloader().download(args.start.date(), external=args.ext, internal=args.int)
     if args.start.date() != args.end.date():
-        LogDownloader().download(args.end.date())
+        LogDownloader().download(args.end.date(), external=args.ext, internal=args.int)
 
     merge_logs()
     parse_logs()
