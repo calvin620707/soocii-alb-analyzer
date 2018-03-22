@@ -154,7 +154,7 @@ def parse_logs():
 class LogAnalyzer:
     def __init__(self, start, end):
         self.start, self.end = start, end
-        self.stat_file = Path('./stat_{}_{}.csv'.format(start.isoformat(), end.isoformat()))
+        self.stat_file = Path('./stats_{}_{}.csv'.format(start.isoformat(), end.isoformat()))
         self.normalize_handler = {
             re.compile(r'https://api\.soocii\.me:443/graph/v1\.2/\d*/achievements'):
                 "https://api.soocii.me:443/graph/v1.2/<id>/achievements",
