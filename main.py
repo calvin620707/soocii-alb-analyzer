@@ -1,11 +1,13 @@
 ﻿#!/usr/bin/env python
 import csv
 import gzip
+from argparse import ArgumentParser
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import boto3
+import dateutil.parser
 
 
 def print_progress(prefix, count, total=None):
@@ -125,8 +127,6 @@ class LogAnalyzer:
                 url = self._normalize_url(url)
                 stats["{} {} {}".format(service, method, url)] += 1
 
-        print(stats)
-
         with self.stat_file.open('w') as out_f:
             writer = csv.writer(out_f)
             for key, count in stats.items():
@@ -162,17 +162,28 @@ class LogAnalyzer:
 
 
 if __name__ == '__main__':
-    LogDownloader().download(date(2018, 3, 21), external=True)
+    def convert_datetime_str(d_str):
+        dt = dateutil.parser.parse(d_str)
+        dt = dt.astimezone(timezone.utc)
+        dt = dt.replace(tzinfo=None)
+        return dt
+
+    arg_parser = ArgumentParser(description="Analyze ALB logs by datetime duration")
+    arg_parser.add_argument('start', type=convert_datetime_str, help="Start datetime")
+    arg_parser.add_argument('end', type=convert_datetime_str, help="End datetime")
+    arg_parser.add_argument("-e", "--external", action="store_true", dest="ext", default=True,
+                            help="Analyze external ALB")
+    arg_parser.add_argument("-i", "--internal", action="store_true", dest="int", default=False,
+                            help="Analyze internal ALB")
+
+    args = arg_parser.parse_args()
+
+    import pdb; pdb.set_trace()
+
+    LogDownloader().download(args.start.date())
+    if args.start.date() != args.end.date():
+        LogDownloader().download(args.end.date())
+
     merge_logs()
     parse_logs()
-    LogAnalyzer().stat_api_calls(datetime(2018, 3, 21, 0), datetime(2018, 3, 21, 23))
-
-    # parser = optparse.OptionParser()
-    # parser.add_option('-f', '--file',
-    #                   dest='file_name',
-    #                   default='',
-    #                   help='Give the time(Mins) for check')
-    # options, remainder = parser.parse_args()
-    # if options.file_name:
-    #     la = LogAnalysis(options.file_name)
-    #     la.start()
+    LogAnalyzer().stat_api_calls(args.start, args.end)
