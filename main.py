@@ -1,76 +1,11 @@
 ﻿#!/usr/bin/env python
-import time
-import optparse
-import datetime
+import csv
 import gzip
-import boto3
+from collections import defaultdict
+from datetime import date, datetime
 from pathlib import Path
-from datetime import date
 
-
-class LogAnalysis():
-    def __init__(self, file_name):
-        self.file_name = file_name
-
-    def start(self):
-        stats = {}
-        with open(self.file_name, 'r') as log_file:
-            iterate = 0
-            for line in log_file:
-                log_time, method, url = line.split(' ')
-                log_time = datetime.datetime.strptime(
-                    log_time, '%Y-%m-%dT%H:%M:%S.%fZ')
-                method = method.strip('"')
-                url = url.strip()
-                five_time = int(time.mktime(log_time.timetuple()))
-                five_time = five_time - (five_time % 300)
-                # print(five_time, log_time, method, url)
-                if 'content/corpus' in url:
-                    continue
-                classify = ''
-                if 'api/v1' in url:
-                    classify = 'jarvis'
-                if 'api/getG' in url:
-                    classify = 'jarvis'
-                if 'graph/v' in url:
-                    classify = 'pepper'
-                if 'recommendation/v' in url:
-                    classify = 'vision'
-                if 'search' in url:
-                    classify = 'pym'
-                if 'titan' in url:
-                    classify = 'titan'
-                url = url.split('?')
-                url = url[0]
-                url = '%s_%s' % (method, url)
-                if five_time in stats:
-                    if classify in stats[five_time]:
-                        if url in stats[five_time][classify]:
-                            stats[five_time][classify][url] += 1
-                        else:
-                            stats[five_time][classify][url] = 1
-                    else:
-                        stats[five_time][classify] = {}
-                        stats[five_time][classify][url] = 1
-                else:
-                    stats[five_time] = {}
-                    stats[five_time][classify] = {}
-                    stats[five_time][classify][url] = 1
-                iterate += 1
-        a = self.parse_dict(stats)
-        for k, v in a.iteritems():
-            print(k)
-
-    def parse_dict(self, init, lkey=''):
-        ret = {}
-        for rkey, val in init.items():
-            key = lkey + str(rkey)
-            if isinstance(val, dict):
-                ret.update(self.parse_dict(val, key + ','))
-            else:
-                key += ',' + str(val)
-                ret[key] = ''
-        return ret
+import boto3
 
 
 def print_progress(prefix, count, total=None):
@@ -136,6 +71,10 @@ merged_file = Path('./merged')
 
 
 def merge_logs():
+    if merged_file.exists():
+        print("{} exists.".format(merged_file))
+        return
+
     logs = list(download_folder.glob('*.gz'))
     total = len(logs)
     count = 0
@@ -163,10 +102,70 @@ def parse_logs():
     print("Parse complete!" + " " * 10)
 
 
+class LogAnalyzer:
+    def __init__(self):
+        self.stat_file = Path('./stat.csv')
+        self.count = 0
+
+    def stat_api_calls(self, start, end):
+        stats = defaultdict(lambda: 0)
+        with parsed_file.open('r') as in_f:
+            for line in in_f:
+                self.count += 1
+                print_progress("Analyzing", self.count)
+                line = line.replace('\n', '')
+                log_at, method, url = self._parse_line(line)
+
+                if log_at < start or log_at > end:
+                    continue
+                if 'content/corpus' in url:
+                    continue
+
+                service = self._identify_service(url)
+                url = self._normalize_url(url)
+                stats["{} {} {}".format(service, method, url)] += 1
+
+        print(stats)
+
+        with self.stat_file.open('w') as out_f:
+            writer = csv.writer(out_f)
+            for key, count in stats.items():
+                split = key.split(' ')
+                service, method, url = split[0], split[1], split[2]
+                writer.writerow([service, method, url, count])
+
+    def _parse_line(self, line):
+        log_datetime, method, url = line.split(' ')
+        log_datetime = datetime.strptime(
+            log_datetime, '%Y-%m-%dT%H:%M:%S.%fZ'
+        )
+        return log_datetime, method, url
+
+    def _identify_service(self, url):
+        service = ''
+        if 'api/v1' in url:
+            service = 'jarvis'
+        if 'api/getG' in url:
+            service = 'jarvis'
+        if 'graph/v' in url:
+            service = 'pepper'
+        if 'recommendation/v' in url:
+            service = 'vision'
+        if 'search' in url:
+            service = 'pym'
+        if 'titan' in url:
+            service = 'titan'
+        return service
+
+    def _normalize_url(self, url):
+        return url.split('?')[0]
+
+
 if __name__ == '__main__':
     LogDownloader().download(date(2018, 3, 21), external=True)
     merge_logs()
     parse_logs()
+    LogAnalyzer().stat_api_calls(datetime(2018, 3, 21, 0), datetime(2018, 3, 21, 23))
 
     # parser = optparse.OptionParser()
     # parser.add_option('-f', '--file',

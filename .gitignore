@@ -103,3 +103,4 @@ ENV/
 download/
 merged
 parsed
+stat.csv
