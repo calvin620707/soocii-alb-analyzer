@@ -56,17 +56,19 @@ class LogDownloader:
 
         count = 0
         total = len(ret['Contents'])
+        exist = 0
         for key in (content['Key'] for content in ret['Contents']):
             file_name = key.replace(prefix, '')
             if (download_folder / file_name).exists():
                 total -= 1
+                exist += 1
                 continue
             boto3.resource('s3').Object(bucket, key).download_file(
                 str(download_folder / file_name)
             )
             count += 1
             print_progress('Download', count, total)
-        print("Download complete!" + " " * 10)
+        print("Download complete! {} existed files.".format(exist) + " " * 10)
 
 
 merged_file = Path('./merged')
@@ -86,7 +88,7 @@ def merge_logs():
                 out_f.write(in_f.read())
                 count += 1
                 print_progress('Decompression', count, total)
-    print("Decompression complete!" + " " * 10)
+    print("Decompression {} files complete!".format(total) + " " * 10)
 
 
 parsed_file = Path('./parsed')
@@ -115,7 +117,7 @@ class LogAnalyzer:
         with parsed_file.open('r') as in_f:
             for line in in_f:
                 self.count += 1
-                print_progress("Analyzing", self.count)
+                print_progress("Analyzing line counts", self.count)
                 line = line.replace('\n', '')
                 log_at, method, url = self._parse_line(line)
 
