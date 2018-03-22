@@ -108,6 +108,7 @@ class LogDownloader:
 merged_file = Path('./merged')
 
 
+# TODO: merge logs which only match duration
 def merge_logs():
     if merged_file.exists():
         print("File, {}, exists. Skip merging logs.".format(merged_file))
