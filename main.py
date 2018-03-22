@@ -112,7 +112,6 @@ class LogDownloader:
 merged_file = Path('./merged')
 
 
-# TODO: merge logs which only match duration
 def merge_logs():
     if merged_file.exists():
         print("File, {}, exists. Skip merging logs.".format(merged_file))
@@ -272,6 +271,10 @@ def clean_cache():
 
 
 if __name__ == '__main__':
+    # TODO:
+    # no-cache => force-download (overwrite files in download)
+    # combine merged and parsed into one operation and write into temp file
+    # filter gz by start and end before merged
     arg_parser = setup_args_parser()
     args = arg_parser.parse_args()
 
