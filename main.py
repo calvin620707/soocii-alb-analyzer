@@ -77,14 +77,15 @@ def merge_logs():
         print("{} exists.".format(merged_file))
         return
 
-    logs = list(download_folder.glob('*.gz'))
-    total = len(logs)
+    log_paths = list(download_folder.glob('*.gz'))
+    total = len(log_paths)
     count = 0
-    for p in logs:
-        with gzip.open(p, 'rb') as in_f, merged_file.open('wb') as out_f:
-            out_f.write(in_f.read())
-            count += 1
-            print_progress('Decompression', count, total)
+    with merged_file.open('wb') as out_f:
+        for p in log_paths:
+            with gzip.open(p, 'rb') as in_f:
+                out_f.write(in_f.read())
+                count += 1
+                print_progress('Decompression', count, total)
     print("Decompression complete!" + " " * 10)
 
 
@@ -177,8 +178,6 @@ if __name__ == '__main__':
                             help="Analyze internal ALB")
 
     args = arg_parser.parse_args()
-
-    import pdb; pdb.set_trace()
 
     LogDownloader().download(args.start.date())
     if args.start.date() != args.end.date():
