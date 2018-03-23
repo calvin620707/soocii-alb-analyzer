@@ -2,7 +2,6 @@
 import csv
 import gzip
 import re
-import shutil
 from argparse import ArgumentParser
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
@@ -11,7 +10,6 @@ from tempfile import TemporaryFile
 
 import boto3
 import dateutil.parser
-import os
 
 
 class ProgressLogger:
@@ -36,13 +34,13 @@ progress_logger = ProgressLogger()
 class LogDownloader:
     folder = Path("./download")
 
-    def __init__(self, start, end, external=False, internal=False):
+    def __init__(self, start, end, external=False, internal=False, force_download=False):
         self.start, self.end = start, end
         self.external, self.internal = external, internal
+        self.force_download = force_download
 
     def download(self):
-        if not self.folder.exists():
-            self.folder.mkdir()
+        self.folder.mkdir(exist_ok=True)
 
         self._download_with_date(self.start.date())
         if self.start.date() != self.end.date():
@@ -82,11 +80,13 @@ class LogDownloader:
         total = len(keys)
         exist = 0
         for key in keys:
-            file_name = key.replace(prefix, '')
-            if (self.folder / file_name).exists():
+            file_name = key.strip(prefix)
+
+            if not self.force_download and (self.folder / file_name).exists():
                 total -= 1
                 exist += 1
                 continue
+
             boto3.resource('s3').Object(bucket, key).download_file(
                 str(self.folder / file_name)
             )
@@ -254,20 +254,12 @@ def setup_args_parser():
                         help="Analyze external ALB (default on)")
     parser.add_argument("-i", "--internal", action="store_true", dest="int", default=False,
                         help="Analyze internal ALB (default off)")
-    parser.add_argument("--no-cache", action="store_true", dest="rm_cache", default=False,
-                        help="Remove cached files.")
+    parser.add_argument("--force-download", action="store_true", dest="force_download", default=False,
+                        help="Download files from S3 even file exists locally.")
     return parser
 
 
-def clean_cache():
-    if LogDownloader.folder.exists():
-        shutil.rmtree(str(LogDownloader.folder))
-        print("Deleted {}.".format(LogDownloader.folder))
-
-
 if __name__ == '__main__':
-    # TODO:
-    # no-cache => force-download (overwrite files in download)
     arg_parser = setup_args_parser()
     args = arg_parser.parse_args()
 
@@ -277,10 +269,9 @@ if __name__ == '__main__':
         if cont.lower() == 'n':
             exit()
 
-    if args.rm_cache:
-        clean_cache()
-
-    downloader = LogDownloader(args.start, args.end, args.ext, args.int)
+    downloader = LogDownloader(args.start, args.end, args.ext, args.int, args.force_download)
+    if args.force_download:
+        print("Force download on. Overwriting existed files in {} folder.".format(downloader.folder))
     downloader.download()
 
     log_parser = LogParser(args.start, args.end, downloader.folder)
