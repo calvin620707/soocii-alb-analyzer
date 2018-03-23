@@ -203,6 +203,7 @@ class LogAnalyzer:
 
         with self.stat_file.open('w') as out_f:
             writer = csv.writer(out_f)
+            writer.writerow(['service', 'method', 'url', 'count'])
             for key, count in stats.items():
                 split = key.split(' ')
                 service, method, url = split[0], split[1], split[2]
@@ -233,6 +234,7 @@ class LogAnalyzer:
 
     def _normalize_url(self, url):
         url = url.split('?')[0]
+        url = url.rstrip('/')
         for ptn, endpoint in self.normalize_handler.items():
             if ptn.match(url):
                 url = endpoint
