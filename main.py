@@ -42,11 +42,13 @@ class LogDownloader:
     def download(self):
         self.folder.mkdir(exist_ok=True)
 
-        self._download_with_date(self.start.date())
-        if self.start.date() != self.end.date():
-            self._download_with_date(self.end.date())
+        date = self.start.date()
+        while date <= self.end.date():
+            self._download_with_date(date)
+            date = date + timedelta(days=1)
 
     def _download_with_date(self, date):
+        print("Start downloading files on {}.".format(date))
         base_prefix = 'AWSLogs/710026814108/elasticloadbalancing/ap-northeast-1/{}/{:02d}/{:02d}/'.format(
             date.year, date.month, date.day
         )
