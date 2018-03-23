@@ -7,6 +7,7 @@ from argparse import ArgumentParser
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from tempfile import TemporaryFile
 
 import boto3
 import dateutil.parser
@@ -31,17 +32,17 @@ class ProgressLogger:
 
 progress_logger = ProgressLogger()
 
-download_folder = Path("./download")
-
 
 class LogDownloader:
+    folder = Path("./download")
+
     def __init__(self, start, end, external=False, internal=False):
         self.start, self.end = start, end
         self.external, self.internal = external, internal
 
     def download(self):
-        if not download_folder.exists():
-            download_folder.mkdir()
+        if not self.folder.exists():
+            self.folder.mkdir()
 
         self._download_with_date(self.start.date())
         if self.start.date() != self.end.date():
@@ -82,12 +83,12 @@ class LogDownloader:
         exist = 0
         for key in keys:
             file_name = key.replace(prefix, '')
-            if (download_folder / file_name).exists():
+            if (self.folder / file_name).exists():
                 total -= 1
                 exist += 1
                 continue
             boto3.resource('s3').Object(bucket, key).download_file(
-                str(download_folder / file_name)
+                str(self.folder / file_name)
             )
             count += 1
             progress_logger.log('Download', count, total)
@@ -101,59 +102,56 @@ class LogDownloader:
         def is_valid(key):
             key = key.strip(prefix)
             obj_datetime = datetime.strptime(key.split("_")[1], "%Y%m%dT%H%MZ")
-            if self.start < obj_datetime < self.end:
-                return True
-            else:
-                return False
+            return self.start < obj_datetime < self.end
 
         return list(filter(is_valid, keys))
 
 
-merged_file = Path('./merged')
+class LogParser:
+    def __init__(self, start, end, download_folder):
+        self.start, self.end = start, end
+        self.download_folder = download_folder
+        self.__temp_file = TemporaryFile()
 
+    @property
+    def parsed_file(self):
+        self.__temp_file.seek(0)
+        return self.__temp_file
 
-def merge_logs():
-    if merged_file.exists():
-        print("File, {}, exists. Skip merging logs.".format(merged_file))
-        return
-
-    log_paths = list(download_folder.glob('*.gz'))
-    total = len(log_paths)
-    count = 0
-    with merged_file.open('wb') as out_f:
-        for p in log_paths:
-            with gzip.open(p, 'rb') as in_f:
-                out_f.write(in_f.read())
+    def parse(self):
+        logs = list(self.download_folder.glob('*.gz'))
+        logs = self._filter(logs)
+        total = len(logs)
+        count = 0
+        for l in logs:
+            with gzip.open(l, 'rb') as in_f:
+                for line in in_f:
+                    text = line.decode()
+                    split = text.split(" ")
+                    text = "{datetime} {method} {url}\n".format(
+                        datetime=split[1], method=split[12].strip("\""), url=split[13]
+                    )
+                    self.__temp_file.write(text.encode())
                 count += 1
-                progress_logger.log('Decompression', count, total)
-    print("Decompression {} files complete!".format(total) + " " * 10)
+                progress_logger.log("Parsing gz files", count, total)
+        self.__temp_file.seek(0)
+        print("Parsing gz files complete!" + " " * 10)
 
+    def _filter(self, logs):
+        def is_valid(filepath):
+            f_datetime = datetime.strptime(filepath.name.split("_")[1], "%Y%m%dT%H%MZ")
+            return self.start < f_datetime < self.end
 
-parsed_file = Path('./parsed')
-
-
-def parse_logs():
-    if parsed_file.exists():
-        print("File, {}, exists. Skip parsing logs.".format(parsed_file))
-        return
-
-    count = 0
-    total = sum(1 for _ in merged_file.open('r'))
-    with merged_file.open('r') as in_f, parsed_file.open('w') as out_f:
-        for line in in_f:
-            split = line.split(' ')
-            out_f.write("{datetime} {method} {url}\n".format(
-                datetime=split[1], method=split[12][1:], url=split[13])
-            )
-            count += 1
-            progress_logger.log('Parsing', count, total)
-    print("Parsing logs complete!" + " " * 10)
+        return list(filter(is_valid, logs))
 
 
 class LogAnalyzer:
     def __init__(self, start, end):
         self.start, self.end = start, end
-        self.stat_file = Path('./stats_{}_{}.csv'.format(start.isoformat(), end.isoformat()))
+
+        self.stats_file = Path('./out/stats_{}_{}.csv'.format(start.isoformat(), end.isoformat()))
+        self.stats_file.parent.mkdir(parents=True, exist_ok=True)
+
         self.normalize_handler = {
             re.compile(r'https://api\.soocii\.me:443/graph/v1\.2/\d*/achievements'):
                 "https://api.soocii.me:443/graph/v1.2/<id>/achievements",
@@ -181,27 +179,28 @@ class LogAnalyzer:
                 "https://api.soocii.me:443/graph/v1.2/me/posts/<status_id>"
         }
 
-    def stat_api_calls(self):
+    def stat_api_calls(self, parsed_file):
         stats = defaultdict(lambda: 0)
-        total = sum(1 for _ in parsed_file.open('r'))
+        total = sum(1 for _ in parsed_file)
+        parsed_file.seek(0)
         count = 0
-        with parsed_file.open('r') as in_f:
-            for line in in_f:
-                count += 1
-                progress_logger.log("Analyzing", count, total)
-                line = line.replace('\n', '')
-                log_at, method, url = self._parse_line(line)
+        for line in parsed_file:
+            count += 1
+            progress_logger.log("Analyzing", count, total)
+            line = line.decode()
+            line = line.strip('\n')
+            log_at, method, url = self._parse_line(line)
 
-                if log_at < self.start or log_at > self.end:
-                    continue
-                if 'content/corpus' in url:
-                    continue
+            if not (self.start < log_at < self.end):
+                continue
+            if 'content/corpus' in url:
+                continue
 
-                service = self._identify_service(url)
-                url = self._normalize_url(url)
-                stats["{} {} {}".format(service, method, url)] += 1
+            service = self._identify_service(url)
+            url = self._normalize_url(url)
+            stats["{} {} {}".format(service, method, url)] += 1
 
-        with self.stat_file.open('w') as out_f:
+        with self.stats_file.open('w') as out_f:
             writer = csv.writer(out_f)
             writer.writerow(['service', 'method', 'url', 'count'])
             for key, count in stats.items():
@@ -248,48 +247,43 @@ def setup_args_parser():
         dt = dt.replace(tzinfo=None)
         return dt
 
-    arg_parser = ArgumentParser(description="Analyze ALB logs by datetime duration")
-    arg_parser.add_argument('start', type=convert_datetime_str, help="Start datetime")
-    arg_parser.add_argument('end', type=convert_datetime_str, help="End datetime")
-    arg_parser.add_argument("-e", "--external", action="store_true", dest="ext", default=True,
-                            help="Analyze external ALB (default on)")
-    arg_parser.add_argument("-i", "--internal", action="store_true", dest="int", default=False,
-                            help="Analyze internal ALB (default off)")
-    arg_parser.add_argument("--no-cache", action="store_true", dest="rm_cache", default=False,
-                            help="Remove cached files.")
-    return arg_parser
+    parser = ArgumentParser(description="Analyze ALB logs by datetime duration")
+    parser.add_argument('start', type=convert_datetime_str, help="Start datetime")
+    parser.add_argument('end', type=convert_datetime_str, help="End datetime")
+    parser.add_argument("-e", "--external", action="store_true", dest="ext", default=True,
+                        help="Analyze external ALB (default on)")
+    parser.add_argument("-i", "--internal", action="store_true", dest="int", default=False,
+                        help="Analyze internal ALB (default off)")
+    parser.add_argument("--no-cache", action="store_true", dest="rm_cache", default=False,
+                        help="Remove cached files.")
+    return parser
 
 
 def clean_cache():
-    if download_folder.exists():
-        shutil.rmtree(str(download_folder))
-        print("Deleted {}.".format(download_folder))
-    if merged_file.exists():
-        os.remove(str(merged_file))
-        print("Deleted {}.".format(merged_file))
-    if parsed_file.exists():
-        os.remove(str(parsed_file))
-        print("Deleted {}.".format(parsed_file))
+    if LogDownloader.folder.exists():
+        shutil.rmtree(str(LogDownloader.folder))
+        print("Deleted {}.".format(LogDownloader.folder))
 
 
 if __name__ == '__main__':
     # TODO:
     # no-cache => force-download (overwrite files in download)
-    # combine merged and parsed into one operation and write into temp file
-    # filter gz by start and end before merged
     arg_parser = setup_args_parser()
     args = arg_parser.parse_args()
 
     analyzer = LogAnalyzer(args.start, args.end)
-    if analyzer.stat_file.exists():
-        cont = input("{} exist. Do you want to continue? [Y|n]".format(analyzer.stat_file))
+    if analyzer.stats_file.exists():
+        cont = input("{} exist. Do you want to continue? [Y|n]".format(analyzer.stats_file))
         if cont.lower() == 'n':
             exit()
 
     if args.rm_cache:
         clean_cache()
 
-    LogDownloader(args.start, args.end, args.ext, args.int).download()
-    merge_logs()
-    parse_logs()
-    analyzer.stat_api_calls()
+    downloader = LogDownloader(args.start, args.end, args.ext, args.int)
+    downloader.download()
+
+    log_parser = LogParser(args.start, args.end, downloader.folder)
+    log_parser.parse()
+
+    analyzer.stat_api_calls(log_parser.parsed_file)

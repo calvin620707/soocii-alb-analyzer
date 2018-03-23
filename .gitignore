@@ -101,6 +101,6 @@ ENV/
 .mypy_cache/
 
 download/
+out/
 merged
 parsed
-stats_*_*.csv
