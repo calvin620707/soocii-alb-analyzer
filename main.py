@@ -2,14 +2,15 @@
 import csv
 import gzip
 import re
+from argparse import ArgumentParser
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryFile
 
-from lib.args_parsers import build_duration_parser
-from lib.downloaders import LogDownloader
-from lib.loggers import ProgressLogger
+import common.args_parsers
+from common.downloaders import LogDownloader
+from common.loggers import ProgressLogger
 
 progress_logger = ProgressLogger()
 
@@ -148,11 +149,9 @@ class LogAnalyzer:
 
 
 def setup_args_parser():
-    parser = build_duration_parser("Analyze ALB logs by datetime duration")
-    parser.add_argument("-e", "--external", action="store_true", dest="ext", default=True,
-                        help="Analyze external ALB (default on)")
-    parser.add_argument("-i", "--internal", action="store_true", dest="int", default=False,
-                        help="Analyze internal ALB (default off)")
+    parser = ArgumentParser(description="Analyze ALB logs by datetime duration")
+    parser = common.args_parsers.setup_duration_parser(parser)
+    parser = common.args_parsers.setup_alb_parser(parser)
     parser.add_argument("--force-download", action="store_true", dest="force_download", default=False,
                         help="Download files from S3 even file exists locally.")
     return parser
