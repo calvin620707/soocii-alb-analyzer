@@ -10,6 +10,7 @@ from tempfile import TemporaryFile
 
 import common.args_parsers
 from common.downloaders import LogDownloader, DownloadFilePeriodFilter
+from common.funcs import get_file_line_count
 from common.loggers import ProgressLogger
 
 progress_logger = ProgressLogger()
@@ -83,7 +84,7 @@ class LogAnalyzer:
 
     def stat_api_calls(self, parsed_file):
         stats = defaultdict(lambda: 0)
-        total = sum(1 for _ in parsed_file)
+        total = get_file_line_count(parsed_file)
         parsed_file.seek(0)
         count = 0
         for line in parsed_file:
