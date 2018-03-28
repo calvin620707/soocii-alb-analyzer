@@ -15,17 +15,20 @@ from common.loggers import ProgressLogger
 progress_logger = ProgressLogger()
 
 
-class LogParser:
+class ParsedLogFile:
     def __init__(self, start, end):
         self.start, self.end = start, end
-        self.__temp_file = TemporaryFile()
 
-    @property
-    def parsed_file(self):
+    def __enter__(self):
+        self.__temp_file = TemporaryFile()
+        self.__parse()
         self.__temp_file.seek(0)
         return self.__temp_file
 
-    def parse(self):
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.__temp_file.close()
+
+    def __parse(self):
         logs = DownloadFilePeriodFilter(self.start, self.end).files
         total = len(logs)
         count = 0
@@ -163,7 +166,5 @@ if __name__ == '__main__':
         print("Force download on. Overwriting existed files in {} folder.".format(downloader.folder))
     downloader.download()
 
-    log_parser = LogParser(args.start, args.end, downloader.folder)
-    log_parser.parse()
-
-    analyzer.stat_api_calls(log_parser.parsed_file)
+    with ParsedLogFile(args.start, args.end) as parsed_file:
+        analyzer.stat_api_calls(parsed_file)
