@@ -2,6 +2,7 @@ from datetime import timedelta, datetime
 from pathlib import Path
 
 import boto3
+import dateutil.parser
 
 from common.loggers import ProgressLogger
 
@@ -33,9 +34,11 @@ class LogDownloader:
         internal_prefix = '710026814108_elasticloadbalancing_ap-northeast-1_app.api-prod-internal-elb.'
 
         if self.external:
+            print("Start download external ALB logs")
             self._download_with_prefix(base_prefix + external_prefix)
 
         if self.internal:
+            print("Start download internal ALB logs")
             self._download_with_prefix(base_prefix + internal_prefix)
 
     def _download_with_prefix(self, prefix):
@@ -84,3 +87,17 @@ class LogDownloader:
             return self.start < obj_datetime < self.end
 
         return list(filter(is_valid, keys))
+
+
+class DownloadFilePeriodFilter:
+    def __init__(self, start, end):
+        self.start, self.end = start, end
+
+        all_files = LogDownloader.folder.glob('*.gz')
+        self.files = list(filter(self.__is_in_period, all_files))
+
+    def __is_in_period(self, file):
+        dt = str(file).split('_')[1]
+        dt = dateutil.parser.parse(dt)
+        dt = dt.replace(tzinfo=None)
+        return self.start < dt < self.end

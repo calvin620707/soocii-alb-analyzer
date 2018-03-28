@@ -9,16 +9,15 @@ from pathlib import Path
 from tempfile import TemporaryFile
 
 import common.args_parsers
-from common.downloaders import LogDownloader
+from common.downloaders import LogDownloader, DownloadFilePeriodFilter
 from common.loggers import ProgressLogger
 
 progress_logger = ProgressLogger()
 
 
 class LogParser:
-    def __init__(self, start, end, download_folder):
+    def __init__(self, start, end):
         self.start, self.end = start, end
-        self.download_folder = download_folder
         self.__temp_file = TemporaryFile()
 
     @property
@@ -27,8 +26,7 @@ class LogParser:
         return self.__temp_file
 
     def parse(self):
-        logs = list(self.download_folder.glob('*.gz'))
-        logs = self._filter(logs)
+        logs = DownloadFilePeriodFilter(self.start, self.end).files
         total = len(logs)
         count = 0
         for l in logs:
@@ -44,13 +42,6 @@ class LogParser:
                 progress_logger.log("Parsing gz files", count, total)
         self.__temp_file.seek(0)
         print("Parsing gz files complete!" + " " * 10)
-
-    def _filter(self, logs):
-        def is_valid(filepath):
-            f_datetime = datetime.strptime(filepath.name.split("_")[1], "%Y%m%dT%H%MZ")
-            return self.start < f_datetime < self.end
-
-        return list(filter(is_valid, logs))
 
 
 class LogAnalyzer:

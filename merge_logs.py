@@ -4,7 +4,7 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 import common.args_parsers
-from common.downloaders import LogDownloader
+from common.downloaders import LogDownloader, DownloadFilePeriodFilter
 from common.loggers import ProgressLogger
 
 if __name__ == '__main__':
@@ -23,7 +23,7 @@ if __name__ == '__main__':
         if cont.lower() == 'n':
             exit()
 
-    logs = list(LogDownloader.folder.glob('*.gz'))
+    logs = DownloadFilePeriodFilter(args.start, args.end).files
     total = len(logs)
     count = 0
     with out.open('wb') as out_f:
