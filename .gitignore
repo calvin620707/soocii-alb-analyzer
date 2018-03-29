@@ -104,3 +104,5 @@ download/
 out/
 merged
 parsed
+
+.DS_Store
