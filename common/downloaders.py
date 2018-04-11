@@ -10,15 +10,19 @@ progress_logger = ProgressLogger()
 
 
 class LogDownloader:
-    folder = Path("./download")
+    download_folder = Path('./download')
+    ext_folder = download_folder / 'ext'
+    int_folder = download_folder / 'int'
 
-    def __init__(self, start, end, external=False, internal=False, force_download=False):
+    def __init__(self, start, end, external, internal, force_download=False):
         self.start, self.end = start, end
         self.external, self.internal = external, internal
         self.force_download = force_download
 
     def download(self):
-        self.folder.mkdir(exist_ok=True)
+        self.download_folder.mkdir(exist_ok=True)
+        self.ext_folder.mkdir(exist_ok=True)
+        self.int_folder.mkdir(exist_ok=True)
 
         date = self.start.date()
         while date <= self.end.date():
@@ -35,13 +39,13 @@ class LogDownloader:
 
         if self.external:
             print("Start download external ALB logs")
-            self._download_with_prefix(base_prefix + external_prefix)
+            self._download_with_prefix(base_prefix + external_prefix, self.ext_folder)
 
         if self.internal:
             print("Start download internal ALB logs")
-            self._download_with_prefix(base_prefix + internal_prefix)
+            self._download_with_prefix(base_prefix + internal_prefix, self.int_folder)
 
-    def _download_with_prefix(self, prefix):
+    def _download_with_prefix(self, prefix, to_folder):
         bucket = 'prod-lbs-access-log'
         s3_client = boto3.client('s3')
 
@@ -64,13 +68,13 @@ class LogDownloader:
         for key in keys:
             file_name = key.strip(prefix)
 
-            if not self.force_download and (self.folder / file_name).exists():
+            if not self.force_download and (to_folder / file_name).exists():
                 total -= 1
                 exist += 1
                 continue
 
             boto3.resource('s3').Object(bucket, key).download_file(
-                str(self.folder / file_name)
+                str(to_folder / file_name)
             )
             count += 1
             progress_logger.log('Download', count, total)
@@ -90,11 +94,18 @@ class LogDownloader:
 
 
 class DownloadFilePeriodFilter:
-    def __init__(self, start, end):
+    def __init__(self, start, end, external, internal):
         self.start, self.end = start, end
+        self.ext, self.int = external, internal
 
-        all_files = LogDownloader.folder.glob('*.gz')
-        self.files = list(filter(self.__is_in_period, all_files))
+        self.files = []
+        if self.ext:
+            all_files = LogDownloader.ext_folder.glob('*.gz')
+            self.files += list(filter(self.__is_in_period, all_files))
+
+        if self.int:
+            all_files = LogDownloader.int_folder.glob('*.gz')
+            self.files += list(filter(self.__is_in_period, all_files))
 
     def __is_in_period(self, file):
         dt = str(file).split('_')[1]
