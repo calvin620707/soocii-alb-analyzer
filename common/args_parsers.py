@@ -1,7 +1,6 @@
-from argparse import ArgumentParser
+from datetime import timezone
 
 import dateutil.parser
-from datetime import timezone
 
 
 def setup_duration_parser(parser):
@@ -17,8 +16,8 @@ def setup_duration_parser(parser):
 
 
 def setup_alb_parser(parser):
-    parser.add_argument("-e", "--external", action="store_true", dest="ext", default=True,
-                        help="Analyze external ALB (default on)")
-    parser.add_argument("-i", "--internal", action="store_true", dest="int", default=False,
-                        help="Analyze internal ALB (default off)")
+    parser.add_argument("--no-external", action="store_false", dest="ext", default=True,
+                        help="Exclude external ALB")
+    parser.add_argument("--no-internal", action="store_false", dest="int", default=True,
+                        help="Exclude internal ALB")
     return parser

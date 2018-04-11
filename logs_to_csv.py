@@ -13,16 +13,16 @@ from common.funcs import get_file_line_count
 from common.loggers import ProgressLogger
 
 
-def _merge_logs(out_f):
-    logs = DownloadFilePeriodFilter(args.start, args.end).files
-    total = len(logs)
-    count = 0
+def _merge_logs(out_f, cli_args):
+    logs = DownloadFilePeriodFilter(cli_args.start, cli_args.end, cli_args.ext, cli_args.int).files
+    total_logs = len(logs)
+    log_count = 0
 
     for zip_file in logs:
         with gzip.open(zip_file, 'r') as in_f:
             out_f.write(in_f.read())
-            count += 1
-            logger.log("Merging", count, total)
+            log_count += 1
+            logger.log("Merging", log_count, total_logs)
     print("Merged!" + " " * 10)
 
 
@@ -31,13 +31,16 @@ if __name__ == '__main__':
 
     parser = ArgumentParser(description="Get ALB logs by datetime duration")
     parser = common.args_parsers.setup_duration_parser(parser)
+    parser = common.args_parsers.setup_alb_parser(parser)
     args = parser.parse_args()
 
-    out = Path('out/alb_logs_{}_{}.csv'.format(args.start.isoformat(), args.end.isoformat()))
+    out = Path('out/alb_logs_{}_{}_{}_{}.csv'.format(
+        args.start.isoformat(), args.end.isoformat(), args.ext, args.int
+    ))
     with TemporaryFile() as merged_file:
-        LogDownloader(args.start, args.end, external=True, internal=True).download()
+        LogDownloader(args.start, args.end, args.ext, args.int).download()
 
-        _merge_logs(merged_file)
+        _merge_logs(merged_file, args)
         merged_file.seek(0)
 
         alb_log_ptn = re.compile(

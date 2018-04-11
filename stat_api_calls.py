@@ -17,8 +17,9 @@ progress_logger = ProgressLogger()
 
 
 class ParsedLogFile:
-    def __init__(self, start, end):
+    def __init__(self, start, end, ext, intl):
         self.start, self.end = start, end
+        self.ext, self.intl = ext, intl
 
     def __enter__(self):
         self.__temp_file = TemporaryFile()
@@ -30,7 +31,7 @@ class ParsedLogFile:
         self.__temp_file.close()
 
     def __parse(self):
-        logs = DownloadFilePeriodFilter(self.start, self.end).files
+        logs = DownloadFilePeriodFilter(self.start, self.end, self.ext, self.intl).files
         total = len(logs)
         count = 0
         for l in logs:
@@ -49,10 +50,13 @@ class ParsedLogFile:
 
 
 class LogAnalyzer:
-    def __init__(self, start, end):
+    def __init__(self, start, end, ext, intl):
         self.start, self.end = start, end
+        self.ext, self.intl = ext, intl
 
-        self.stats_file = Path('./out/stats_{}_{}.csv'.format(start.isoformat(), end.isoformat()))
+        self.stats_file = Path('./out/stats_{}_{}_{}_{}.csv'.format(
+            start.isoformat(), end.isoformat(), self.ext, self.intl)
+        )
         self.stats_file.parent.mkdir(parents=True, exist_ok=True)
 
         self.normalize_handler = {
@@ -82,12 +86,12 @@ class LogAnalyzer:
                 "https://api.soocii.me:443/graph/v1.2/me/posts/<status_id>"
         }
 
-    def stat_api_calls(self, parsed_file):
+    def stat_api_calls(self, in_file):
         stats = defaultdict(lambda: 0)
-        total = get_file_line_count(parsed_file)
-        parsed_file.seek(0)
+        total = get_file_line_count(in_file)
+        in_file.seek(0)
         count = 0
-        for line in parsed_file:
+        for line in in_file:
             count += 1
             progress_logger.log("Analyzing", count, total)
             line = line.decode()
@@ -156,7 +160,7 @@ if __name__ == '__main__':
     arg_parser = setup_args_parser()
     args = arg_parser.parse_args()
 
-    analyzer = LogAnalyzer(args.start, args.end)
+    analyzer = LogAnalyzer(args.start, args.end, args.ext, args.int)
     if analyzer.stats_file.exists():
         cont = input("{} exist. Do you want to continue? [Y|n]".format(analyzer.stats_file))
         if cont.lower() == 'n':
@@ -164,8 +168,8 @@ if __name__ == '__main__':
 
     downloader = LogDownloader(args.start, args.end, args.ext, args.int, args.force_download)
     if args.force_download:
-        print("Force download on. Overwriting existed files in {} folder.".format(downloader.folder))
+        print("Force download on. Overwriting existed files in download folder.")
     downloader.download()
 
-    with ParsedLogFile(args.start, args.end) as parsed_file:
+    with ParsedLogFile(args.start, args.end, args.ext, args.int) as parsed_file:
         analyzer.stat_api_calls(parsed_file)
