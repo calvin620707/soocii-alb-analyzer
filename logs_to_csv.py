@@ -19,7 +19,7 @@ def _merge_logs(out_f, cli_args):
     log_count = 0
 
     for zip_file in logs:
-        with gzip.open(zip_file, 'r') as in_f:
+        with gzip.open(str(zip_file), 'r') as in_f:
             out_f.write(in_f.read())
             log_count += 1
             logger.log("Merging", log_count, total_logs)

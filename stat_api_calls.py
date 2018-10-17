@@ -35,7 +35,7 @@ class ParsedLogFile:
         total = len(logs)
         count = 0
         for l in logs:
-            with gzip.open(l, 'rb') as in_f:
+            with gzip.open(str(l), 'rb') as in_f:
                 for line in in_f:
                     text = line.decode()
                     split = text.split(" ")
@@ -50,6 +50,16 @@ class ParsedLogFile:
 
 
 class LogAnalyzer:
+
+    service_ptn = {
+        'jarvis': re.compile(r'\/api\/'),
+        'pepper': re.compile(r'\/graph\/v'),
+        'vision': re.compile(r'\/recommendation\/v'),
+        'search': re.compile(r'\/pym\/'),
+        'titan': re.compile(r'\/titan\/'),
+        'pym': re.compile(r'\/search\/'),
+        'thor': re.compile(r'\/pbl\/v'),
+    }
     def __init__(self, start, end, ext, intl):
         self.start, self.end = start, end
         self.ext, self.intl = ext, intl
@@ -59,32 +69,34 @@ class LogAnalyzer:
         )
         self.stats_file.parent.mkdir(parents=True, exist_ok=True)
 
-        self.normalize_handler = {
-            re.compile(r'https://api\.soocii\.me:443/graph/v1\.2/\d*/achievements'):
-                "https://api.soocii.me:443/graph/v1.2/<id>/achievements",
-            re.compile(r'https://api\.soocii\.me:443/graph/v1\.2/\d*/followees/count'):
-                "https://api.soocii.me:443/graph/v1.2/<id>/followees/count",
-            re.compile(r'https://api\.soocii\.me:443/graph/v1\.2/\d*/followers/count'):
-                "https://api.soocii.me:443/graph/v1.2/<id>/followers/count",
-            re.compile(r'https://api\.soocii\.me:443/graph/v1\.2/users/\d*/followees'):
-                "https://api.soocii.me:443/graph/v1.2/users/<id>/followees",
-            re.compile(r'https://api\.soocii\.me:443/graph/v1\.2/users/\d*/followers'):
-                "https://api.soocii.me:443/graph/v1.2/users/<id>/followers",
-            re.compile(r'https://api\.soocii\.me:443/graph/v1\.2/\d*/friendship'):
-                "https://api.soocii.me:443/graph/v1.2/<id>/friendship",
-            re.compile(r'https://api\.soocii\.me:443/graph/v1\.2/\d*/posts'):
-                "https://api.soocii.me:443/graph/v1.2/<id>/posts",
-            re.compile(r'https://api\.soocii\.me:443/graph/v1\.2/me/feed/\w*-\w*'):
-                "https://api.soocii.me:443/graph/v1.2/me/feed/<status_id>",
-            re.compile(r'https://api\.soocii\.me:443/graph/v1\.2/\w*-\w*/comments'):
-                "https://api.soocii.me:443/graph/v1.2/<status_id>/comments",
-            re.compile(r'https://api\.soocii\.me:443/graph/v1\.2/posts/\w*-\w*/likes'):
-                "https://api.soocii.me:443/graph/v1.2/posts/<status_id>/likes",
-            re.compile(r'https://api\.soocii\.me:443/graph/v1\.2/\d*/pinned-posts'):
-                "https://api.soocii.me:443/graph/v1.2/<id>/pinned-posts",
-            re.compile(r'https://api\.soocii\.me:443/graph/v1\.2/me/posts/\w*-\w'):
-                "https://api.soocii.me:443/graph/v1.2/me/posts/<status_id>"
-        }
+        self.normalize_handler = [
+            (re.compile(r'^(https?://api(?:-internal)?\.soocii\.me:\d+/graph/v[0-9\.]+(?:/\w+)*)/\w+(-shared)?-status(/\w+/)\w+-comment'),
+                r'\1/<status\2_id>\3<comment_id>'),
+            (re.compile(r'^(https?://api(?:-internal)?\.soocii\.me:\d+/graph/v[0-9\.]+(?:/\w+)*)/\w+(-shared)?-status'),
+                r'\1/<status\2_id>'),
+            (re.compile(r'^(https?://api(?:-internal)?\.soocii\.me:\d+/graph/v[0-9\.]+(?:/\w+)?)/\d+'),
+                r'\1/<id>'),
+            (re.compile(r'^(https?://api(?:-internal)?\.soocii\.me:\d+/recommendation/v[0-9\.]+(?:\/\w+)+)/streaming_\w+$'),
+                r'\1/<stream_id>'),
+            (re.compile(r'^(https?://api(?:-internal)?\.soocii\.me:\d+/recommendation/v[0-9\.]+(?:\/\w+)+)/\w+(-shared)?-status$'),
+                r'\1/<status\2_id>'),
+            (re.compile(r'^(https?://api(?:-internal)?\.soocii\.me:\d+/search/v[0-9\.]+(?:\/\w+)+)/\d+$'),
+                r'\1/<id>'),
+            (re.compile(r'^(https?://api(?:-internal)?\.soocii\.me:\d+/search/v[0-9\.]+(?:\/\w+)+)/\w+(-shared)?-status$'),
+                r'\1/<status\2_id>'),
+            (re.compile(r'^(https?://api(?:-internal)?\.soocii\.me:\d+/pbl/v[0-9\.]+/missions/complete/commit)/TX-[\w-]+-MISSION$'),
+                r'\1/<transaction_id>'),
+            (re.compile(r'^(https?://api(?:-internal)?\.soocii\.me:\d+/pbl/v[0-9\.]+/missions/complete/begin)/\d+$'),
+                r'\1/<mission_id>'),
+            (re.compile(r'^(https?://api(?:-internal)?\.soocii\.me:\d+/pbl/v[0-9\.]+/missions/me)/\d+$'),
+                r'\1/<mission_id>'),
+            (re.compile(r'^(https?://api(?:-internal)?\.soocii\.me:\d+/pbl/v[0-9\.]+/leaderboards/fans)/\d+'),
+                r'\1/<donatee>'),
+            (re.compile(r'^(https?://api(?:-internal)?\.soocii\.me:\d+/pbl/v[0-9\.]+/gifts/donations/donatee)/\d+$'),
+                r'\1/<id>'),
+            (re.compile(r'^(https?://api(?:-internal)?\.soocii\.me:\d+/pbl/v[0-9\.]+/purchases(?:\/\w)+)/\d+$'),
+                r'\1/<id>'),
+        ]
 
     def stat_api_calls(self, in_file):
         stats = defaultdict(lambda: 0)
@@ -125,25 +137,18 @@ class LogAnalyzer:
         return log_datetime, method, url
 
     def _identify_service(self, url):
-        service = ''
-        if 'api/' in url:
-            service = 'jarvis'
-        if 'graph/v' in url:
-            service = 'pepper'
-        if 'recommendation/v' in url:
-            service = 'vision'
-        if 'search' in url:
-            service = 'pym'
-        if 'titan' in url:
-            service = 'titan'
-        return service
+        for srv, ptn in self.service_ptn.items():
+            if ptn.search(url):
+                return srv
+        return ''
 
     def _normalize_url(self, url):
         url = url.split('?')[0]
         url = url.rstrip('/')
-        for ptn, endpoint in self.normalize_handler.items():
-            if ptn.match(url):
-                url = endpoint
+        for ptn, endpoint in self.normalize_handler:
+            normalized_url = ptn.sub(endpoint, url)
+            if normalized_url != url:
+                return normalized_url
         return url
 
 
